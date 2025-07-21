@@ -3,14 +3,17 @@ import 'package:pulseforge/widgets/gradient_container.dart';
 import 'package:pulseforge/widgets/custom_button.dart';
 import 'package:pulseforge/models/user.dart';
 import 'package:pulseforge/services/auth_service.dart';
-import 'package:pulseforge/screens/main/main_navigation_screen.dart';
+import 'package:pulseforge/services/auth_state_service.dart';
 
 class CompletionScreen extends StatefulWidget {
   final FitnessGoal selectedGoal;
   final ActivityLevel selectedLevel;
   final List<WorkoutPreference> selectedPreferences;
   final Map<String, int> availability;
-  final HealthMetrics healthMetrics;
+  final int? age;
+  final double? height;
+  final double? weight;
+  final int? restingHeartRate;
 
   const CompletionScreen({
     super.key,
@@ -18,7 +21,10 @@ class CompletionScreen extends StatefulWidget {
     required this.selectedLevel,
     required this.selectedPreferences,
     required this.availability,
-    required this.healthMetrics,
+    this.age,
+    this.height,
+    this.weight,
+    this.restingHeartRate,
   });
 
   @override
@@ -53,24 +59,100 @@ class _CompletionScreenState extends State<CompletionScreen>
   Future<void> _completeOnboarding() async {
     setState(() => _isLoading = true);
 
-    final profile = UserProfile(
-      goal: widget.selectedGoal,
-      activityLevel: widget.selectedLevel,
-      preferences: widget.selectedPreferences,
-      availability: widget.availability,
-      healthMetrics: widget.healthMetrics,
-      onboardingCompleted: true,
-    );
+    try {
+      // Convert enums to strings for Supabase
+      final fitnessGoals = [_getGoalString(widget.selectedGoal)];
+      final exercisePreferences = widget.selectedPreferences.map(_getPreferenceString).toList();
+      final preferredDays = widget.availability.entries
+          .where((entry) => entry.value > 0)
+          .map((entry) => entry.key.toLowerCase())
+          .toList();
 
-    await AuthService.instance.updateUserProfile(profile);
-    await Future.delayed(const Duration(seconds: 1)); // Simulate AI processing
+      // Get user info from auth
+      final currentUser = AuthService.instance.currentAuthUser;
 
-    if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
-        (route) => false,
+      await AuthService.instance.createOrUpdateUserProfile(
+        fullName: currentUser?.displayName,
+        age: widget.age,
+        height: widget.height,
+        weight: widget.weight,
+        fitnessGoals: fitnessGoals,
+        fitnessLevel: _getLevelString(widget.selectedLevel),
+        exercisePreferences: exercisePreferences,
+        workoutFrequency: _getWorkoutFrequency(),
+        workoutDuration: 30, // Default duration
+        preferredDays: preferredDays,
+        onboardingCompleted: true,
       );
+
+      // Refresh auth state to trigger automatic navigation
+      await AuthStateService.instance.refreshUserProfile();
+      
+      await Future.delayed(const Duration(seconds: 1)); // Simulate AI processing
+      
+      // AuthStateService will handle navigation automatically based on the updated profile
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save profile: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  String _getGoalString(FitnessGoal goal) {
+    switch (goal) {
+      case FitnessGoal.weightLoss:
+        return FitnessGoals.weightLoss;
+      case FitnessGoal.muscleGain:
+        return FitnessGoals.muscleGain;
+      case FitnessGoal.endurance:
+        return FitnessGoals.endurance;
+      case FitnessGoal.strength:
+        return FitnessGoals.strength;
+      case FitnessGoal.flexibility:
+        return FitnessGoals.flexibility;
+      case FitnessGoal.general:
+        return FitnessGoals.general;
+    }
+  }
+
+  String _getLevelString(ActivityLevel level) {
+    switch (level) {
+      case ActivityLevel.beginner:
+        return FitnessLevels.beginner;
+      case ActivityLevel.intermediate:
+        return FitnessLevels.intermediate;
+      case ActivityLevel.advanced:
+        return FitnessLevels.advanced;
+    }
+  }
+
+  String _getPreferenceString(WorkoutPreference preference) {
+    switch (preference) {
+      case WorkoutPreference.cardio:
+        return ExercisePreferences.cardio;
+      case WorkoutPreference.strength:
+        return ExercisePreferences.strength;
+      case WorkoutPreference.yoga:
+        return ExercisePreferences.yoga;
+      case WorkoutPreference.pilates:
+        return ExercisePreferences.pilates;
+      case WorkoutPreference.hiit:
+        return ExercisePreferences.hiit;
+      case WorkoutPreference.outdoor:
+        return ExercisePreferences.outdoor;
+      case WorkoutPreference.home:
+        return ExercisePreferences.home;
+    }
+  }
+
+  int _getWorkoutFrequency() {
+    return widget.availability.values.where((time) => time > 0).length;
   }
 
   @override
@@ -241,7 +323,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   }
 
   int _getActiveDays() {
-    return widget.availability.values.where((time) => time > 0).length;
+    return _getWorkoutFrequency();
   }
 }
 

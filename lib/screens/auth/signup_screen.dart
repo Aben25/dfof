@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:pulseforge/widgets/gradient_container.dart';
 import 'package:pulseforge/widgets/custom_button.dart';
 import 'package:pulseforge/services/auth_service.dart';
-import 'package:pulseforge/screens/onboarding/welcome_screen.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -35,19 +34,34 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() => _isLoading = true);
       
       try {
-        final success = await AuthService.instance.signup(
-          _nameController.text.trim(),
+        final response = await AuthService.instance.signup(
           _emailController.text.trim(),
           _passwordController.text,
+          displayName: _nameController.text.trim(),
         );
         
-        if (success && mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-          );
-        } else if (mounted) {
+        if (response.user != null && mounted) {
+          // AuthStateService will handle the navigation automatically
+          // New users will be directed to onboarding
+        }
+      } catch (e) {
+        if (mounted) {
+          String errorMessage = 'Signup failed';
+          
+          // Provide user-friendly error messages
+          if (e.toString().contains('already registered')) {
+            errorMessage = 'An account with this email already exists';
+          } else if (e.toString().contains('Password should be at least')) {
+            errorMessage = 'Password should be at least 6 characters';
+          } else if (e.toString().contains('Signup requires')) {
+            errorMessage = 'Please check your email to confirm your account';
+          }
+          
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to create account')),
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
           );
         }
       } finally {

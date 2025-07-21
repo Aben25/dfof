@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pulseforge/widgets/gradient_container.dart';
 import 'package:pulseforge/widgets/stats_card.dart';
-import 'package:pulseforge/widgets/custom_button.dart';
 import 'package:pulseforge/models/workout.dart';
 import 'package:pulseforge/services/auth_service.dart';
 
@@ -23,9 +22,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadData() async {
-    final user = await AuthService.instance.getCurrentUser();
+    final user = await AuthService.instance.getCurrentUserWithProfile();
     setState(() {
-      userName = user?.name ?? 'User';
+      userName = user?.displayName ?? 'User';
       todayWorkouts = WorkoutData.getSampleWorkouts();
     });
   }

@@ -40,13 +40,6 @@ class _HealthInfoScreenState extends State<HealthInfoScreen> {
 
   void _continue() {
     if (_formKey.currentState!.validate()) {
-      final healthMetrics = HealthMetrics(
-        age: int.tryParse(_ageController.text),
-        height: double.tryParse(_heightController.text),
-        weight: double.tryParse(_weightController.text),
-        restingHeartRate: int.tryParse(_heartRateController.text),
-      );
-
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CompletionScreen(
@@ -54,7 +47,10 @@ class _HealthInfoScreenState extends State<HealthInfoScreen> {
             selectedLevel: widget.selectedLevel,
             selectedPreferences: widget.selectedPreferences,
             availability: widget.availability,
-            healthMetrics: healthMetrics,
+            age: int.tryParse(_ageController.text),
+            height: double.tryParse(_heightController.text),
+            weight: double.tryParse(_weightController.text),
+            restingHeartRate: int.tryParse(_heartRateController.text),
           ),
         ),
       );

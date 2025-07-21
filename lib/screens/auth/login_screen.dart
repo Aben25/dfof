@@ -3,7 +3,6 @@ import 'package:pulseforge/widgets/gradient_container.dart';
 import 'package:pulseforge/widgets/custom_button.dart';
 import 'package:pulseforge/services/auth_service.dart';
 import 'package:pulseforge/screens/auth/signup_screen.dart';
-import 'package:pulseforge/screens/onboarding/welcome_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -31,22 +30,70 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = true);
       
       try {
-        final success = await AuthService.instance.login(
+        final response = await AuthService.instance.login(
           _emailController.text.trim(),
           _passwordController.text,
         );
         
-        if (success && mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-          );
-        } else if (mounted) {
+        if (response.user != null && mounted) {
+          // AuthStateService will handle the navigation automatically
+          // No need to manually navigate - the AuthWrapper will react to the auth state change
+        }
+      } catch (e) {
+        if (mounted) {
+          String errorMessage = 'Login failed';
+          
+          // Provide user-friendly error messages
+          if (e.toString().contains('Invalid login credentials')) {
+            errorMessage = 'Invalid email or password';
+          } else if (e.toString().contains('Email not confirmed')) {
+            errorMessage = 'Please check your email and confirm your account';
+          } else if (e.toString().contains('Too many requests')) {
+            errorMessage = 'Too many login attempts. Please try again later';
+          }
+          
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid email or password')),
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
           );
         }
       } finally {
         if (mounted) setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter your email address first'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await AuthService.instance.resetPassword(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Password reset email sent to $email'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send reset email: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
       }
     }
   }
@@ -161,6 +208,21 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                       return null;
                     },
+                  ),
+                  
+                  // Forgot Password link
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _isLoading ? null : _handleForgotPassword,
+                      child: Text(
+                        'Forgot Password?',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   ),
                   
                   const SizedBox(height: 24),

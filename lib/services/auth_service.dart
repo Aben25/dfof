@@ -1,103 +1,210 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pulseforge/models/user.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pulseforge/config/supabase_config.dart';
+import 'package:pulseforge/models/user.dart' as app_models;
+import 'package:uuid/uuid.dart';
 
 class AuthService {
-  static const String _userKey = 'current_user';
-  static const String _isLoggedInKey = 'is_logged_in';
-
   static AuthService? _instance;
   static AuthService get instance => _instance ??= AuthService._();
   AuthService._();
 
-  Future<bool> login(String email, String password) async {
-    await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-    
-    // Simple validation for demo
-    if (email.isNotEmpty && password.isNotEmpty) {
-      final user = User(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        email: email,
-        name: _extractNameFromEmail(email),
-        createdAt: DateTime.now(),
+  SupabaseClient get _supabase => SupabaseConfig.client;
+  final _uuid = const Uuid();
+
+  // Stream to listen to auth state changes
+  Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
+
+  // Check if user is currently logged in
+  bool get isLoggedIn => _supabase.auth.currentUser != null;
+
+  // Get current auth user
+  app_models.User? get currentAuthUser {
+    final authUser = _supabase.auth.currentUser;
+    if (authUser != null) {
+      return app_models.User(
+        id: authUser.id,
+        email: authUser.email ?? '',
+        displayName: authUser.userMetadata?['display_name'],
+        avatarUrl: authUser.userMetadata?['avatar_url'],
+        createdAt: DateTime.parse(authUser.createdAt),
+        updatedAt: DateTime.parse(authUser.updatedAt ?? authUser.createdAt),
       );
-      
-      await _saveUser(user);
-      await _setLoggedIn(true);
-      return true;
-    }
-    return false;
-  }
-
-  Future<bool> signup(String name, String email, String password) async {
-    await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-    
-    if (name.isNotEmpty && email.isNotEmpty && password.isNotEmpty) {
-      final user = User(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        email: email,
-        name: name,
-        createdAt: DateTime.now(),
-      );
-      
-      await _saveUser(user);
-      await _setLoggedIn(true);
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_userKey);
-    await prefs.setBool(_isLoggedInKey, false);
-  }
-
-  Future<bool> isLoggedIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_isLoggedInKey) ?? false;
-  }
-
-  Future<User?> getCurrentUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userJson = prefs.getString(_userKey);
-    if (userJson != null) {
-      return User.fromJson(json.decode(userJson));
     }
     return null;
   }
 
-  Future<void> updateUserProfile(UserProfile profile) async {
-    final user = await getCurrentUser();
-    if (user != null) {
-      final updatedUser = User(
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        createdAt: user.createdAt,
-        profile: profile,
+  Future<AuthResponse> signup(String email, String password, {String? displayName}) async {
+    try {
+      final response = await _supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: displayName != null ? {'display_name': displayName} : null,
       );
-      await _saveUser(updatedUser);
+
+      // If signup successful and user is created, create user record in public.users table
+      if (response.user != null) {
+        await _createUserRecord(response.user!);
+      }
+
+      return response;
+    } catch (e) {
+      rethrow;
     }
   }
 
-  Future<void> _saveUser(User user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userKey, json.encode(user.toJson()));
-  }
-
-  Future<void> _setLoggedIn(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_isLoggedInKey, value);
-  }
-
-  String _extractNameFromEmail(String email) {
-    final parts = email.split('@');
-    if (parts.isNotEmpty) {
-      return parts.first.split('.').map((part) => 
-        part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1)
-      ).join(' ');
+  Future<AuthResponse> login(String email, String password) async {
+    try {
+      return await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      rethrow;
     }
-    return 'User';
+  }
+
+  Future<void> logout() async {
+    try {
+      await _supabase.auth.signOut();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> resetPassword(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Create user record in public.users table
+  Future<void> _createUserRecord(User user) async {
+    try {
+      await _supabase.from('users').insert({
+        'id': user.id,
+        'email': user.email,
+        'display_name': user.userMetadata?['display_name'],
+        'avatar_url': user.userMetadata?['avatar_url'],
+      });
+    } catch (e) {
+      debugPrint('Error creating user record: $e');
+      // Don't rethrow as this is not critical for auth
+    }
+  }
+
+  // Get user profile from database
+  Future<app_models.UserProfile?> getUserProfile() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      final response = await _supabase
+          .from('user_profiles')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (response != null) {
+        return app_models.UserProfile.fromJson(response);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching user profile: $e');
+      return null;
+    }
+  }
+
+  // Create or update user profile
+  Future<app_models.UserProfile?> createOrUpdateUserProfile({
+    String? fullName,
+    String? gender,
+    int? age,
+    double? height,
+    double? weight,
+    String? heightUnit,
+    String? weightUnit,
+    List<String>? fitnessGoals,
+    List<String>? fitnessPriorities,
+    String? additionalInfo,
+    String? fitnessLevel,
+    List<String>? exercisePreferences,
+    int? workoutFrequency,
+    int? workoutDuration,
+    List<String>? preferredDays,
+    bool? onboardingCompleted,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) throw Exception('User not logged in');
+
+      // Check if profile exists
+      final existingProfile = await getUserProfile();
+      
+      final profileData = {
+        'user_id': userId,
+        'full_name': fullName,
+        'gender': gender,
+        'age': age,
+        'height': height,
+        'weight': weight,
+        'height_unit': heightUnit ?? 'cm',
+        'weight_unit': weightUnit ?? 'kg',
+        'fitness_goals': fitnessGoals ?? [],
+        'fitness_priorities': fitnessPriorities ?? [],
+        'additional_info': additionalInfo,
+        'fitness_level': fitnessLevel,
+        'exercise_preferences': exercisePreferences ?? [],
+        'workout_frequency': workoutFrequency,
+        'workout_duration': workoutDuration,
+        'preferred_days': preferredDays ?? [],
+        'onboarding_completed': onboardingCompleted ?? false,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      Map<String, dynamic> response;
+      
+      if (existingProfile != null) {
+        // Update existing profile
+        response = await _supabase
+            .from('user_profiles')
+            .update(profileData)
+            .eq('user_id', userId)
+            .select()
+            .single();
+      } else {
+        // Create new profile
+        profileData['id'] = _uuid.v4();
+        profileData['created_at'] = DateTime.now().toIso8601String();
+        
+        response = await _supabase
+            .from('user_profiles')
+            .insert(profileData)
+            .select()
+            .single();
+      }
+
+      return app_models.UserProfile.fromJson(response);
+    } catch (e) {
+      debugPrint('Error creating/updating user profile: $e');
+      rethrow;
+    }
+  }
+
+  // Get current user with profile
+  Future<app_models.User?> getCurrentUserWithProfile() async {
+    try {
+      final authUser = currentAuthUser;
+      if (authUser == null) return null;
+
+      final profile = await getUserProfile();
+      return authUser.copyWith(profile: profile);
+    } catch (e) {
+      debugPrint('Error getting current user with profile: $e');
+      return currentAuthUser;
+    }
   }
 }
