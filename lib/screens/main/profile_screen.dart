@@ -22,7 +22,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadUser() async {
-    final user = await AuthService.instance.getCurrentUser();
+    final user = await AuthService.instance.getCurrentUserWithProfile();
     setState(() {
       currentUser = user;
     });
@@ -199,14 +199,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _getUserLevel() {
     final profile = currentUser?.profile;
-    if (profile != null) {
-      switch (profile.activityLevel) {
-        case ActivityLevel.beginner:
+    if (profile?.fitnessLevel != null) {
+      switch (profile!.fitnessLevel) {
+        case 'beginner':
           return 'Beginner';
-        case ActivityLevel.intermediate:
+        case 'intermediate':
           return 'Intermediate';
-        case ActivityLevel.advanced:
+        case 'advanced':
           return 'Advanced';
+        default:
+          return 'Unknown';
       }
     }
     return 'Beginner';
